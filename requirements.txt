@@ -1,0 +1,7 @@
+numpy>=1.26
+scipy>=1.11
+matplotlib>=3.8
+trimesh>=4.0
+shapely>=2.0
+pandas>=2.1
+scikit-learn>=1.3
