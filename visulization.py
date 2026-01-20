@@ -2,60 +2,130 @@ import size_distribution
 import voronoi_generator
 import particle_generator
 
-from scipy.spatial import ConvexHull
-import numpy as np
+
+
 import matplotlib.pyplot as plt
 
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import numpy as np
+from scipy.spatial import ConvexHull
+from scipy.spatial.distance import cdist
+from scipy.linalg import eigh
 
 
-def plot_polyhedrons(polyhedrons_dict):
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
+def calculate_polyhedron_properties(polyhedrons_dict):
+    """
+    计算多面体的形态参数（输入输出均使用int类型索引）：
+    - 输入：{int: [(x1,y1,z1), (x2,y2,z2), ...]}，键为整数编号
+    - 输出：{int: {sphericity: v1, flatness: v2, ...}}，键保持整数类型
+    """
+    results = {}
 
-    # 为不同多面体生成随机颜色
-    colors = plt.cm.jet(np.linspace(0, 1, len(polyhedrons_dict)))
+    for idx, vertices in polyhedrons_dict.items():
+        # 强制索引为整数（若输入为其他类型自动转换）
+        idx = int(idx)
+        points = np.array(vertices)
 
-    for idx, (key, vertices) in enumerate(polyhedrons_dict.items()):
-        # 将顶点列表转换为NumPy数组
-        verts = np.array(vertices)
+        # 1. 计算凸包（多面体表面）
+        hull = ConvexHull(points)
 
-        # 创建多面体对象（凸包）
-        hull = ConvexHull(verts)
+        # 2. 计算体积和表面积
+        volume = hull.volume
+        surface_area = hull.area
 
-        # 绘制多面体表面
-        faces = []
-        for simplex in hull.simplices:
-            faces.append(verts[simplex])
+        # 3. 计算等效球体参数
+        equiv_sphere_radius = (3 * volume / (4 * np.pi)) ** (1 / 3)
+        equiv_sphere_area = 4 * np.pi * equiv_sphere_radius ** 2
 
-        poly = Poly3DCollection(faces,
-                                alpha=0.7,
-                                edgecolor='k',
-                                facecolor=colors[idx])
-        ax.add_collection3d(poly)
+        # 4. 计算主轴长度（PCA分析）
+        centered = points - np.mean(points, axis=0)
+        cov_matrix = np.cov(centered.T)
+        eigenvalues, _ = eigh(cov_matrix)
+        axes_lengths = np.sqrt(eigenvalues) * 2  # 乘以2得到近似轴长
 
-        # 添加索引标签
-        centroid = np.mean(verts, axis=0)
-        ax.text(centroid[0], centroid[1], centroid[2],
-                f'ID:{key}', fontsize=9, ha='center')
+        # 排序轴长（长>中>短）
+        sorted_lengths = np.sort(axes_lengths)[::-1]
+        long_axis, mid_axis, short_axis = sorted_lengths
 
-    # 设置坐标轴
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title('3D Polyhedron Visualization')
+        # 5. 计算最小外接球半径（近似）
+        centroid = np.mean(points, axis=0)
+        max_distance = np.max(cdist([centroid], points))
 
-    # 自动调整视角
-    ax.view_init(elev=20, azim=45)
-    plt.tight_layout()
-    # 在plt.show()前添加这几行
-    ax.set_box_aspect([1, 1, 1])  # 保持比例不变形
-    plt.tight_layout()
+        # 6. 计算各项指标
+        sphericity = equiv_sphere_area / surface_area
+        flatness = short_axis / mid_axis
+        elongation = long_axis / mid_axis
+        roundness = max_distance / equiv_sphere_radius
 
-    # 启用高级交互模式（关键！）
-    plt.rcParams['toolbar'] = 'toolmanager'  # 激活工具栏
-    fig.canvas.manager.toolmanager.add_tool('Rotate', Axes3D._rotate)  # 添加旋转工具
-    plt.show()
+        # 确保结果键为整数类型
+        results[idx] = {
+            'sphericity': round(sphericity, 4),
+            'flatness': round(flatness, 4),
+            'elongation': round(elongation, 4),
+            'roundness': round(roundness, 4)
+        }
+
+    return results
+
+
+# 示例用法
+# if __name__ == "__main__":
+#     # 示例数据：立方体和四面体
+#     sample_data = {
+#         "cube": [(-1, -1, -1), (-1, -1, 1), (-1, 1, -1), (-1, 1, 1),
+#                  (1, -1, -1), (1, -1, 1), (1, 1, -1), (1, 1, 1)],
+#         "tetrahedron": [(1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1)]
+#     }
+
+
+
+# def plot_polyhedrons(polyhedrons_dict):
+#     fig = plt.figure(figsize=(10, 8))
+#     ax = fig.add_subplot(111, projection='3d')
+#
+#     # 为不同多面体生成随机颜色
+#     colors = plt.cm.jet(np.linspace(0, 1, len(polyhedrons_dict)))
+#
+#     for idx, (key, vertices) in enumerate(polyhedrons_dict.items()):
+#         # 将顶点列表转换为NumPy数组
+#         verts = np.array(vertices)
+#
+#         # 创建多面体对象（凸包）
+#         hull = ConvexHull(verts)
+#
+#         # 绘制多面体表面
+#         faces = []
+#         for simplex in hull.simplices:
+#             faces.append(verts[simplex])
+#
+#         poly = Poly3DCollection(faces,
+#                                 alpha=0.7,
+#                                 edgecolor='k',
+#                                 facecolor=colors[idx])
+#         ax.add_collection3d(poly)
+#
+#         # 添加索引标签
+#         centroid = np.mean(verts, axis=0)
+#         ax.text(centroid[0], centroid[1], centroid[2],
+#                 f'ID:{key}', fontsize=9, ha='center')
+#
+#     # 设置坐标轴
+#     ax.set_xlabel('X')
+#     ax.set_ylabel('Y')
+#     ax.set_zlabel('Z')
+#     ax.set_title('3D Polyhedron Visualization')
+#
+#     # 自动调整视角
+#     ax.view_init(elev=20, azim=45)
+#     plt.tight_layout()
+#     # 在plt.show()前添加这几行
+#     ax.set_box_aspect([1, 1, 1])  # 保持比例不变形
+#     plt.tight_layout()
+#
+#     # 启用高级交互模式（关键！）
+#     plt.rcParams['toolbar'] = 'toolmanager'  # 激活工具栏
+#     fig.canvas.manager.toolmanager.add_tool('Rotate', Axes3D._rotate)  # 添加旋转工具
+#     plt.show()
 
 
 # 示例数据（四面体 + 立方体）
@@ -95,4 +165,13 @@ if __name__ == "__main__":
         for i in range(0, 9):
             vertices[i] = particle_generator.perlin_noise_modification(vertices[i], amplitude)
         # 执行可视化
-        plot_polyhedrons(vertices)
+        # plot_polyhedrons(vertices)
+        properties = calculate_polyhedron_properties(vertices)
+
+# 打印结果
+        for idx, metrics in properties.items():
+            print(f"\n {idx} 形态参数:")
+            print(f"• 球度: {metrics['sphericity']} (越接近1越接近球形)")
+            print(f"• 扁平度: {metrics['flatness']} (短轴/中轴)")
+            print(f"• 伸长度: {metrics['elongation']} (长轴/中轴)")
+            print(f"• 圆度: {metrics['roundness']} (值越小表面越光滑)")
