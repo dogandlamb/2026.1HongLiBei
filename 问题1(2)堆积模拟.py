@@ -178,7 +178,7 @@ def run_simulation():
     spacing = 150 # Spacing between particles (max D ~ 90, so 150 is safe)
     
     for i, k in enumerate(keys):
-        if count >= 100: break # Limit
+        if count >= 10: break # Limit
         
         verts = polyhedrons[k]
         
@@ -203,7 +203,7 @@ def run_simulation():
         verts = [ (v[0]*scale_factor, v[1]*scale_factor, v[2]*scale_factor) for v in verts]
 
         # Modify with noise
-        verts = particle_generator.perlin_noise_modification(verts, 2.5)
+        verts = particle_generator.perlin_noise_modification(verts, 3.0)
         
         # Create Particle with normalized mass for stability
         # Virtual Mass = 1.0
@@ -233,7 +233,7 @@ def run_simulation():
     
     # Simulation Loop
     dt = 0.005 # Stable time step
-    total_time = 3.0 
+    total_time = 3 
     steps = int(total_time / dt)
     
     # Virtual Gravity (tuned for visualization speed)
@@ -369,6 +369,7 @@ def visualize_packing(particles, container):
     ax.set_box_aspect([1, 1, 1])
     ax.set_title("Random Packing in Cylindrical Container (DEM+GJK)")
     
+    plt.savefig('outputs/packing_simulation_plot.png')
     plt.show()
 
 def save_to_glb(particles, container, filename="packing_simulation.glb"):
@@ -407,5 +408,14 @@ if __name__ == "__main__":
     
     # Export GLB first
     save_to_glb(final_particles, container, "outputs/output.glb")
+
+    # Save particle data for Section Analysis (Problem 2)
+    import pickle
+    print("Saving particle data for analysis...")
+    # We only need the world vertices for geometric analysis
+    particles_data = [p.get_world_vertices() for p in final_particles]
+    with open('outputs/particles_data.pkl', 'wb') as f:
+        pickle.dump(particles_data, f)
+    print("Particle data saved to outputs/particles_data.pkl")
     
     visualize_packing(final_particles, container)

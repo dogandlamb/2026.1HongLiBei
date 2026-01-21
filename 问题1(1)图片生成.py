@@ -81,7 +81,7 @@ def generate_figure_1():
     
     # (d) Perturbed
     ax4 = fig.add_subplot(144, projection='3d')
-    verts_d = particle_generator.perlin_noise_modification(verts_c.tolist(), amplitude=2.5)
+    verts_d = particle_generator.perlin_noise_modification(verts_c.tolist(), amplitude=3.0)
     verts_d = np.array(verts_d)
     hull_d = ConvexHull(verts_d)
     ax4.add_collection3d(Poly3DCollection(verts_d[hull_d.simplices], alpha=0.5, edgecolor='k', facecolor='cyan'))
