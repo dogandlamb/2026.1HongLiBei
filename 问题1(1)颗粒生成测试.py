@@ -1,24 +1,40 @@
+import sys
+sys.path.append('src')
 import size_distribution
 import voronoi_generator
 import particle_generator
+import particle_analysis
 
 from scipy.spatial import ConvexHull
 import numpy as np
 import matplotlib.pyplot as plt
+import trimesh
 
+from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 
 def plot_polyhedrons(polyhedrons_dict):
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
+    # 创建一个大图，包含 2x5 = 10 个子图
+    fig = plt.figure(figsize=(20, 10))
+    
+    # 获取前10个颗粒的键
+    keys = list(polyhedrons_dict.keys())[:10]
+    
     # 为不同多面体生成随机颜色
-    colors = plt.cm.jet(np.linspace(0, 1, len(polyhedrons_dict)))
+    colors = plt.cm.jet(np.linspace(0, 1, len(keys)))
 
-    for idx, (key, vertices) in enumerate(polyhedrons_dict.items()):
+    for i, key in enumerate(keys):
+        vertices = polyhedrons_dict[key]
+        
+        # 创建子图
+        ax = fig.add_subplot(2, 5, i + 1, projection='3d')
+        
         # 将顶点列表转换为NumPy数组
         verts = np.array(vertices)
+
+        # 计算几何参数
+        params = particle_analysis.analyze_particle(verts)
 
         # 创建多面体对象（凸包）
         hull = ConvexHull(verts)
@@ -31,30 +47,34 @@ def plot_polyhedrons(polyhedrons_dict):
         poly = Poly3DCollection(faces,
                                 alpha=0.7,
                                 edgecolor='k',
-                                facecolor=colors[idx])
+                                facecolor=colors[i])
         ax.add_collection3d(poly)
 
-        # 添加索引标签
-        centroid = np.mean(verts, axis=0)
-        ax.text(centroid[0], centroid[1], centroid[2],
-                f'ID:{key}', fontsize=9, ha='center')
+        # 设置标题显示参数
+        title_str = (f'ID:{key}\n'
+                     f'D_eq:{params["Equivalent Diameter"]:.2f} Sp:{params["Sphericity"]:.2f}\n'
+                     f'Flat:{params["Flatness"]:.2f} Elong:{params["Elongation"]:.2f}\n'
+                     f'Rnd:{params["Roundness (Approx)"]:.2f}')
+        ax.set_title(title_str, fontsize=8)
 
-    # 设置坐标轴
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title('3D Polyhedron Visualization')
+        # 自动调整坐标轴范围
+        ax.set_xlim(verts[:,0].min(), verts[:,0].max())
+        ax.set_ylim(verts[:,1].min(), verts[:,1].max())
+        ax.set_zlim(verts[:,2].min(), verts[:,2].max())
+        
+        # 设置坐标轴标签
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
 
-    # 自动调整视角
-    ax.view_init(elev=20, azim=45)
+        # 保持比例
+        ax.set_box_aspect([1, 1, 1])
+
+        # 自动调整视角
+        ax.view_init(elev=20, azim=45)
+
     plt.tight_layout()
-    # 在plt.show()前添加这几行
-    ax.set_box_aspect([1, 1, 1])  # 保持比例不变形
-    plt.tight_layout()
-
-    # 启用高级交互模式（关键！）
-    plt.rcParams['toolbar'] = 'toolmanager'  # 激活工具栏
-    fig.canvas.manager.toolmanager.add_tool('Rotate', Axes3D._rotate)  # 添加旋转工具
+    # 默认工具栏通常就支持3D旋转（鼠标左键拖动）
     plt.show()
 
 
@@ -85,14 +105,18 @@ if __name__ == "__main__":
         polyhedrons=voronoi_generator.generate_voronoi_polyhedrons(seeds)
         for i in range(0, len(polyhedrons)):
             possion_seeds.append( size_distribution.generate_normal_particle_size(
-                60,
-                10,
+                4.0,
+                0.3,
             ))
         vertices=voronoi_generator.scale_polyhedrons(polyhedrons,possion_seeds)
+        
+        # 只显示前10个颗粒
+        vertices = dict(list(vertices.items())[:10])
+        
         amplitude = 0.1  # 振幅参数 A
 
     # 应用 OpenSimplex 噪声修改
-        for i in range(0, 9):
+        for i in vertices:
             vertices[i] = particle_generator.perlin_noise_modification(vertices[i], amplitude)
         # 执行可视化
         plot_polyhedrons(vertices)

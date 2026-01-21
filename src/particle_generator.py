@@ -1,9 +1,45 @@
 import math
 import sys
+import numpy as np
+from scipy.spatial import ConvexHull
 
 import size_distribution
 import voronoi_generator
 
+
+def laplacian_smoothing(vertices, iterations=2, alpha=0.5):
+    """
+    Apply Laplacian smoothing to the mesh vertices.
+    """
+    verts = np.array(vertices)
+    if len(verts) < 4: return vertices
+    
+    for _ in range(iterations):
+        try:
+            hull = ConvexHull(verts)
+            # Build adjacency
+            adj = {i: set() for i in range(len(verts))}
+            for simplex in hull.simplices:
+                for i in range(3):
+                    for j in range(i+1, 3):
+                        u, v = simplex[i], simplex[j]
+                        adj[u].add(v)
+                        adj[v].add(u)
+            
+            new_verts = verts.copy()
+            for i in range(len(verts)):
+                neighbors = list(adj[i])
+                if not neighbors: continue
+                neighbor_sum = np.sum(verts[neighbors], axis=0)
+                target = neighbor_sum / len(neighbors)
+                # Formula: v_new = v + alpha * (avg_neighbor - v)
+                new_verts[i] = verts[i] + alpha * (target - verts[i])
+            verts = new_verts
+        except Exception as e:
+            print(f"Smoothing failed: {e}")
+            break
+            
+    return verts.tolist()
 
 def perlin_noise_modification(vertices, amplitude):
     """
@@ -25,7 +61,7 @@ def perlin_noise_modification(vertices, amplitude):
     - 如果顶点列表为空，或振幅为 NaN，抛出 ValueError。
     """
     # 检查输入有效性
-    if not vertices:
+    if len(vertices) == 0:
         raise ValueError("顶点列表不能为空")
     if math.isnan(amplitude):
         raise ValueError("振幅参数不能为 NaN")
@@ -80,7 +116,10 @@ def perlin_noise_modification(vertices, amplitude):
 
         modified_vertices.append(p_new)
 
-    return modified_vertices
+    # 步骤五：应用 Laplacian 平滑
+    smoothed_vertices = laplacian_smoothing(modified_vertices, iterations=2, alpha=0.5)
+
+    return smoothed_vertices
 
 
 # 示例用法

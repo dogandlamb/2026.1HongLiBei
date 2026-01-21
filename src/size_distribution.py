@@ -33,23 +33,23 @@ def generate_normal_particle_size(
     if sigma <= 0:
         raise ValueError("Sigma must be positive")
 
-    # Box-Müller变换生成标准正态分布
-    def _box_muller() -> float:
+    # LogNormal分布
+    def _log_normal_sample() -> float:
+        # 生成标准正态随机数
         u1, u2 = random.random(), random.random()
-        z0 = math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
-        return z0
+        z = math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
+        # 对应 ln(D) ~ N(mu, sigma^2)
+        # 所以 D = exp(mu + z * sigma)
+        return math.exp(mu + z * sigma)
 
     # 调试信息：显示输入参数
     if debug:
-        print(f"DEBUG: 生成参数 - 均值={mu}μm, 标准差={sigma}μm, 取值范围=[{low}, {high}]μm")
+        print(f"DEBUG: 生成参数 - LogNormal mu={mu}, sigma={sigma}, 取值范围=[{low}, {high}]μm")
 
-    # 通过逆变换法转换到目标正态分布
+    # 采样
     for attempt in range(1, max_attempts + 1):
-        # 生成标准正态随机数
-        z = _box_muller()
-
-        # 转换到目标分布
-        particle_size = mu + z * sigma
+        # 生成
+        particle_size = _log_normal_sample()
 
         # 调试信息：显示每次尝试结果
         if debug:
