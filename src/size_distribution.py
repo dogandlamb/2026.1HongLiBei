@@ -1,73 +1,62 @@
 import math
 import random
-from typing import Tuple
+from typing import Optional, Tuple
+
+
+def sample_truncated_lognormal(
+    mu_ln: float = 4.0,
+    sigma_ln: float = 0.3,
+    size_range: Tuple[float, float] = (30.0, 90.0),
+    max_attempts: int = 10_000,
+    rng: Optional[random.Random] = None,
+
+) -> float:
+    r"""从截断对数正态分布采样粒径（单位：μm）。
+
+    与论文一致：$\ln(D) \sim \mathcal{N}(\mu, \sigma^2)$，并截断到 $D\in[a,b]$。
+
+    参数:
+    - mu_ln, sigma_ln: 对数空间参数（对应论文中的 μ, σ）
+    - size_range: (a, b)，单位 μm
+    - rng: 可传入 random.Random 以便复现实验
+    """
+    low, high = size_range
+    if low >= high:
+        raise ValueError("Invalid size_range: low must be < high")
+    if sigma_ln <= 0:
+        raise ValueError("sigma_ln must be positive")
+
+    if rng is None:
+        rng = random
+
+    for _ in range(max_attempts):
+        # Box-Muller 生成标准正态
+        u1, u2 = rng.random(), rng.random()
+        z = math.sqrt(-2.0 * math.log(max(u1, 1e-12))) * math.cos(2 * math.pi * u2)
+        d = math.exp(mu_ln + z * sigma_ln)
+        if low <= d <= high:
+            return round(d, 2)
+
+    raise RuntimeError(f"生成失败: 超过 {max_attempts} 次仍未落入范围 {size_range}")
 
 
 def generate_normal_particle_size(
-        mu: float,
-        sigma: float,
-        size_range: Tuple[float, float] = (30, 90),
-        max_attempts: int = 1000,
-        debug: bool = False  # 新增调试模式参数
+    mu: float,
+    sigma: float,
+    size_range: Tuple[float, float] = (30, 90),
+    max_attempts: int = 1000,
+    debug: bool = False,
 ) -> float:
+    """兼容旧接口。
+
+    注意：历史上该函数名不准确——实际生成的是“对数正态(LogNormal)”粒径，
+    且 mu/sigma 为 ln(D) 的参数。
     """
-    生成符合正态分布的随机粒径（单位：μm）
-
-    参数:
-    mu -- 目标正态分布的均值
-    sigma -- 目标正态分布的标准差
-    size_range -- 粒径允许的范围 (默认值: (30, 90))
-    max_attempts -- 最大尝试次数 (防止无限循环)
-    debug -- 调试模式开关 (默认关闭)
-
-    返回:
-    落在指定范围内的随机粒径值
-
-    异常:
-    ValueError -- 当无法生成有效值或输入参数无效时
-    """
-    # 验证参数有效性
-    low, high = size_range
-    if low >= high:
-        raise ValueError("Invalid size range")
-    if sigma <= 0:
-        raise ValueError("Sigma must be positive")
-
-    # LogNormal分布
-    def _log_normal_sample() -> float:
-        # 生成标准正态随机数
-        u1, u2 = random.random(), random.random()
-        z = math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2)
-        # 对应 ln(D) ~ N(mu, sigma^2)
-        # 所以 D = exp(mu + z * sigma)
-        return math.exp(mu + z * sigma)
-
-    # 调试信息：显示输入参数
     if debug:
-        print(f"DEBUG: 生成参数 - LogNormal mu={mu}, sigma={sigma}, 取值范围=[{low}, {high}]μm")
-
-    # 采样
-    for attempt in range(1, max_attempts + 1):
-        # 生成
-        particle_size = _log_normal_sample()
-
-        # 调试信息：显示每次尝试结果
-        if debug:
-            status = "符合要求" if low <= particle_size <= high else "超出范围"
-            print(f"DEBUG: 尝试#{attempt} - 生成值={particle_size:.2f}μm ({status})")
-
-        # 检查范围约束
-        if low <= particle_size <= high:
-            final_size = round(particle_size, 2)  # 保留两位小数
-            if debug:
-                print(f"DEBUG: 成功生成粒径 - {final_size}μm (总尝试次数: {attempt})")
-            return final_size
-
-    # 超过最大尝试次数
-    err_msg = f"生成失败: 经过 {max_attempts} 次尝试仍无法生成符合要求的粒径"
-    if debug:
-        print(f"DEBUG: {err_msg}")
-    raise RuntimeError(err_msg)
+        print(
+            f"DEBUG: LogNormal(mu_ln={mu}, sigma_ln={sigma}), range={size_range}, max={max_attempts}"
+        )
+    return sample_truncated_lognormal(mu_ln=mu, sigma_ln=sigma, size_range=size_range, max_attempts=max_attempts)
 
 # for i in range(1, 6):
 #         print(f"\n=== 样本 #{i} ===")

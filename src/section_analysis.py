@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.spatial import ConvexHull
-from scipy.stats import lognorm, weibull_min, kstest
+from scipy.stats import lognorm, weibull_min, gamma, norm, kstest
 import matplotlib.pyplot as plt
 
 def get_slice_polygon(vertices, z_plane):
@@ -154,6 +154,32 @@ def perform_statistical_analysis(data_list):
         }
     except Exception as e:
         results['Weibull'] = {'p_value': 0, 'error': str(e)}
+
+    # 3. Gamma Fit
+    try:
+        a_gm, loc_gm, scale_gm = gamma.fit(data, floc=0)
+        results['Gamma'] = {
+            'alpha': a_gm,
+            'scale': scale_gm,
+            'ks_stat': kstest(data, 'gamma', args=(a_gm, loc_gm, scale_gm))[0],
+            'p_value': kstest(data, 'gamma', args=(a_gm, loc_gm, scale_gm))[1],
+            'params_scipy': (a_gm, loc_gm, scale_gm)
+        }
+    except Exception as e:
+        results['Gamma'] = {'p_value': 0, 'error': str(e)}
+
+    # 4. Normal Fit
+    try:
+        mu_norm, std_norm = norm.fit(data)
+        results['Normal'] = {
+            'mu': mu_norm,
+            'std': std_norm,
+            'ks_stat': kstest(data, 'norm', args=(mu_norm, std_norm))[0],
+            'p_value': kstest(data, 'norm', args=(mu_norm, std_norm))[1],
+            'params_scipy': (mu_norm, std_norm)
+        }
+    except Exception as e:
+        results['Normal'] = {'p_value': 0, 'error': str(e)}
     
     return results
 
@@ -184,6 +210,20 @@ def plot_distributions(data_list, results, title, xlabel, save_path=None):
         current_pdf = weibull_min.pdf(x, c, loc, scale)
         if not np.any(np.isnan(current_pdf)):
              plt.plot(x, current_pdf, 'b--', linewidth=2, label=f'Weibull (p={results["Weibull"]["p_value"]:.3f})')
+    
+    # Plot Gamma
+    if 'params_scipy' in results.get('Gamma', {}):
+        a, loc, scale = results['Gamma']['params_scipy']
+        current_pdf = gamma.pdf(x, a, loc, scale)
+        if not np.any(np.isnan(current_pdf)):
+             plt.plot(x, current_pdf, 'y-.', linewidth=2, label=f'Gamma (p={results["Gamma"]["p_value"]:.3f})')
+
+    # Plot Normal
+    if 'params_scipy' in results.get('Normal', {}):
+        loc, scale = results['Normal']['params_scipy']
+        current_pdf = norm.pdf(x, loc, scale)
+        if not np.any(np.isnan(current_pdf)):
+             plt.plot(x, current_pdf, 'm:', linewidth=2, label=f'Normal (p={results["Normal"]["p_value"]:.3f})')
     
     plt.title(title)
     plt.xlabel(xlabel)

@@ -91,6 +91,12 @@ def main():
         if 'p_value' in results['Weibull']:
             p_val = results['Weibull']['p_value']
             print(f"韦伯分布 (Weibull) P值:     {p_val:.4e} " + ("-> 拟合良好" if p_val > 0.05 else "-> 拟合欠佳"))
+        if 'p_value' in results.get('Gamma', {}):
+             p_val = results['Gamma']['p_value']
+             print(f"伽马分布 (Gamma) P值:       {p_val:.4e} " + ("-> 拟合良好" if p_val > 0.05 else "-> 拟合欠佳"))
+        if 'p_value' in results.get('Normal', {}):
+             p_val = results['Normal']['p_value']
+             print(f"正态分布 (Normal) P值:      {p_val:.4e} " + ("-> 拟合良好" if p_val > 0.05 else "-> 拟合欠佳"))
             
         save_path = os.path.join('outputs', filename)
         # 调用更新后的 plot_distributions，传入 title 和 xlabel

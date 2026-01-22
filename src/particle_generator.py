@@ -41,6 +41,65 @@ def laplacian_smoothing(vertices, iterations=2, alpha=0.5):
             
     return verts.tolist()
 
+
+def _estimate_vertex_normals(vertices: np.ndarray) -> np.ndarray:
+    """Estimate outward vertex normals for a convex polyhedron.
+
+    Uses ConvexHull triangles and area-weighted face normals, then normalizes.
+    """
+    hull = ConvexHull(vertices)
+    centroid = np.mean(vertices, axis=0)
+
+    normals = np.zeros_like(vertices, dtype=float)
+    for tri in hull.simplices:
+        p0, p1, p2 = vertices[tri[0]], vertices[tri[1]], vertices[tri[2]]
+        n = np.cross(p1 - p0, p2 - p0)
+        n_norm = np.linalg.norm(n)
+        if n_norm < 1e-12:
+            continue
+        # Ensure outward direction
+        tri_center = (p0 + p1 + p2) / 3.0
+        if np.dot(n, tri_center - centroid) < 0:
+            n = -n
+        # Area-weighted accumulation
+        normals[tri[0]] += n
+        normals[tri[1]] += n
+        normals[tri[2]] += n
+
+    # Normalize
+    lens = np.linalg.norm(normals, axis=1)
+    lens[lens < 1e-12] = 1.0
+    normals = normals / lens[:, None]
+    return normals
+
+
+def _coherent_noise_3d(x: float, y: float, z: float, seed: int = 42) -> float:
+    """Coherent noise in [-1, 1].
+
+    Prefers opensimplex if installed; otherwise falls back to a deterministic
+    smooth-ish hash-based function.
+    """
+    try:
+        import opensimplex
+
+        # Cache per-seed generator to avoid re-init cost
+        if not hasattr(_coherent_noise_3d, "_gens"):
+            _coherent_noise_3d._gens = {}
+        gens = _coherent_noise_3d._gens
+        if seed not in gens:
+            gens[seed] = opensimplex.OpenSimplex(seed=seed)
+        return float(gens[seed].noise3(x=x, y=y, z=z))
+    except Exception:
+        # Fallback: smooth trigonometric mix (deterministic, continuous)
+        s = float(seed) * 0.001
+        v = (
+            math.sin(0.07 * x + 1.3 * s)
+            + math.sin(0.09 * y + 2.1 * s)
+            + math.sin(0.05 * z + 0.7 * s)
+        ) / 3.0
+        # Map roughly into [-1, 1]
+        return max(-1.0, min(1.0, v))
+
 def perlin_noise_modification(vertices, amplitude):
     """
     使用 OpenSimplex 噪声修改多面体顶点位置。
@@ -66,60 +125,93 @@ def perlin_noise_modification(vertices, amplitude):
     if math.isnan(amplitude):
         raise ValueError("振幅参数不能为 NaN")
 
-    try:
-        import opensimplex
-    except ImportError:
-        print("错误：需要 'opensimplex' 库来生成三维噪声。请通过命令 'pip install opensimplex' 安装。")
-        sys.exit(1)
+    verts = np.asarray(vertices, dtype=float)
+    if len(verts) < 4:
+        return vertices
 
-    # 初始化 OpenSimplex 噪声生成器（可指定 seed 固定噪声模式，如 opensimplex.OpenSimplex(seed=42)）
-    noise_gen = opensimplex.OpenSimplex(seed=42)
+    normals = _estimate_vertex_normals(verts)
 
-    # 步骤二：计算多面体质心（所有顶点的平均位置）
-    n_vertices = len(vertices)
-    centroid_x = sum(v[0] for v in vertices) / n_vertices
-    centroid_y = sum(v[1] for v in vertices) / n_vertices
-    centroid_z = sum(v[2] for v in vertices) / n_vertices
-    centroid = (centroid_x, centroid_y, centroid_z)
+    # 为了让噪声具有“尺度可控”，这里引入一个坐标缩放系数（类似论文里的相干噪声场）
+    # 经验：以颗粒尺度(几十微米)而言，0.05~0.15 的频率较合适
+    noise_freq = 0.08
+    seed = 42
 
-    # 初始化修改后的顶点列表
-    modified_vertices = []
+    modified = verts.copy()
+    for i, p in enumerate(verts):
+        n_value = _coherent_noise_3d(
+            x=float(p[0]) * noise_freq,
+            y=float(p[1]) * noise_freq,
+            z=float(p[2]) * noise_freq,
+            seed=seed,
+        )
+        modified[i] = p + float(amplitude) * float(n_value) * normals[i]
 
-    # 步骤一：遍历每个顶点 P
-    for p in vertices:
-        p_x, p_y, p_z = p
-
-        # 计算从质心指向 P 的向量
-        vec_x = p_x - centroid[0]
-        vec_y = p_y - centroid[1]
-        vec_z = p_z - centroid[2]
-
-        # 归一化向量以获得单位法向量 N
-        magnitude = math.sqrt(vec_x ** 2 + vec_y ** 2 + vec_z ** 2)
-        if magnitude == 0:
-            # 边界情况：顶点与质心重合时不移动
-            n_x, n_y, n_z = 0.0, 0.0, 0.0
-        else:
-            n_x = vec_x / magnitude
-            n_y = vec_y / magnitude
-            n_z = vec_z / magnitude
-
-        # 步骤三：使用 OpenSimplex 计算三维噪声值（范围 [-1, 1]）
-        # 注意：OpenSimplex 的 noise3 方法参数为 (x, y, z)，返回值范围 [-1, 1]
-        n_value = noise_gen.noise3(x=p_x, y=p_y, z=p_z)
-
-        # 步骤四：计算新位置 P' = P + A * n * N
-        displacement_x = amplitude * n_value * n_x
-        displacement_y = amplitude * n_value * n_y
-        displacement_z = amplitude * n_value * n_z
-        p_new = (p_x + displacement_x, p_y + displacement_y, p_z + displacement_z)
-
-        modified_vertices.append(p_new)
+    modified_vertices = [tuple(v) for v in modified]
 
     # 步骤五：应用 Laplacian 平滑
     smoothed_vertices = laplacian_smoothing(modified_vertices, iterations=2, alpha=0.5)
 
     return smoothed_vertices
+
+
+def generate_voronoi_perlin_particle(
+    bounds=((0.0, 200.0), (0.0, 200.0), (0.0, 200.0)),
+    expected_seed_count: int = 50,
+    target_diameter_um: float | None = None,
+    mu_ln: float = 4.0,
+    sigma_ln: float = 0.3,
+    diameter_range_um=(30.0, 90.0),
+    amplitude_um: float = 2.5,
+    random_seed: int = 42,
+) -> list[tuple[float, float, float]]:
+    """生成单个不规则颗粒（Voronoi–Perlin 复合模型）。
+
+    与论文流程一致：
+    1) 泊松点过程生成种子点并构造 3D Voronoi
+    2) 选取一个有界闭单元作为骨架
+    3) 按体积等效直径约束进行围绕质心缩放
+    4) 沿外法线注入相干噪声并进行 Laplacian 平滑
+    """
+    (x_min, x_max), (y_min, y_max), (z_min, z_max) = bounds
+    Lx, Ly, Lz = (x_max - x_min), (y_max - y_min), (z_max - z_min)
+    volume = Lx * Ly * Lz
+    if volume <= 0:
+        raise ValueError("Invalid bounds")
+
+    intensity = float(expected_seed_count) / float(volume)
+    seeds = voronoi_generator.generate_poisson_seeds(bounds, intensity, random_seed=random_seed)
+    polyhedrons = voronoi_generator.generate_voronoi_polyhedrons(seeds)
+    if not polyhedrons:
+        raise RuntimeError("Voronoi generation produced no bounded cells; try increasing seed count or bounds")
+
+    # 选一个“相对居中”的单元：优先取种子点靠近域中心的
+    center = np.array([(x_min + x_max) / 2.0, (y_min + y_max) / 2.0, (z_min + z_max) / 2.0])
+    candidates = []
+    for pid, verts in polyhedrons.items():
+        p = np.array(seeds[pid])
+        candidates.append((np.linalg.norm(p - center), pid))
+    candidates.sort(key=lambda t: t[0])
+    chosen_id = candidates[min(3, len(candidates) - 1)][1]  # 略偏中心，避免边界单元过扁
+    verts = polyhedrons[chosen_id]
+
+    # 目标粒径
+    if target_diameter_um is None:
+        target_diameter_um = size_distribution.sample_truncated_lognormal(
+            mu_ln=mu_ln,
+            sigma_ln=sigma_ln,
+            size_range=diameter_range_um,
+            rng=None,
+        )
+
+    # 围绕质心缩放到 D_eq
+    verts = voronoi_generator.scale_polyhedron_to_eq_diameter(verts, float(target_diameter_um))
+
+    # 噪声扰动 + 平滑
+    verts = perlin_noise_modification(verts, float(amplitude_um))
+
+    # 扰动会改变体积，为了严格满足 D_eq ∈ [30,90] 的硬约束，这里再次按 D_eq 进行缩放
+    verts = voronoi_generator.scale_polyhedron_to_eq_diameter(verts, float(target_diameter_um))
+    return [tuple(v) for v in np.asarray(verts, dtype=float)]
 
 
 # 示例用法

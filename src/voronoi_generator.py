@@ -9,6 +9,35 @@ from typing import Dict, List, Tuple
 import math
 
 
+def _polyhedron_eq_diameter(vertices: np.ndarray) -> float:
+    """Compute volume-equivalent diameter D_eq from convex hull volume."""
+    hull = ConvexHull(vertices)
+    volume = hull.volume
+    return (6.0 * volume / math.pi) ** (1.0 / 3.0)
+
+
+def scale_polyhedron_to_eq_diameter(
+    vertices: List[Tuple[float, float, float]],
+    target_diameter: float,
+) -> List[Tuple[float, float, float]]:
+    """Scale a single convex polyhedron to match target volume-equivalent diameter.
+
+    Follows paper Eq.(3)-(4): v' = s (v - c) + c, where
+    s = d_t / (6 V0 / pi)^{1/3}.
+    """
+    verts = np.asarray(vertices, dtype=float)
+    if len(verts) < 4:
+        return [tuple(v) for v in verts]
+
+    c = np.mean(verts, axis=0)
+    d0 = _polyhedron_eq_diameter(verts)
+    if d0 <= 0:
+        return [tuple(v) for v in verts]
+    s = float(target_diameter) / float(d0)
+    scaled = (verts - c) * s + c
+    return [tuple(v) for v in scaled]
+
+
 
 def generate_poisson_seeds(
         bounds: Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]],
@@ -169,28 +198,31 @@ def scale_polyhedrons(
     scaling_factors = []
     original_diameters = []
 
-    # 遍历每个多面体
-    for idx, (poly_id, vertices) in enumerate(polyhedrons.items()):
-        # 转换为numpy数组以便计算
-        vertices_arr = np.array(vertices)
+    # 为了避免 dict 迭代顺序导致的错配：按 poly_id 排序后再对齐 target_diameters
+    poly_ids = sorted(polyhedrons.keys())
 
-        # 计算凸包体积 (等效球体积)
-        hull = ConvexHull(vertices_arr)
-        volume = hull.volume
+    for idx, poly_id in enumerate(poly_ids):
+        vertices = polyhedrons[poly_id]
+        vertices_arr = np.asarray(vertices, dtype=float)
 
         # 计算当前等效直径
-        d_v = (6 * volume / math.pi) ** (1 / 3)
+        try:
+            d_v = _polyhedron_eq_diameter(vertices_arr)
+        except Exception:
+            continue
         original_diameters.append(d_v)
 
-        # 获取目标粒径
-        d_target = target_diameters[idx]
+        d_target = float(target_diameters[idx])
+        if d_v <= 0:
+            continue
 
-        # 计算缩放因子
         s = d_target / d_v
         scaling_factors.append(s)
 
-        # 缩放所有顶点
-        scaled_vertices = [(x * s, y * s, z * s) for (x, y, z) in vertices]
+        # 围绕质心缩放（论文 Eq.(4)）
+        centroid = np.mean(vertices_arr, axis=0)
+        scaled_arr = (vertices_arr - centroid) * s + centroid
+        scaled_vertices = [tuple(v) for v in scaled_arr]
         scaled_polyhedrons[poly_id] = scaled_vertices
 
         # 打印缩放信息

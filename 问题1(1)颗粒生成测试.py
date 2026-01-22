@@ -113,7 +113,7 @@ if __name__ == "__main__":
         # 只显示前10个颗粒
         vertices = dict(list(vertices.items())[:10])
         
-        amplitude = 0.1  # 振幅参数 A
+        amplitude = 2.5  # 振幅参数 A（论文标定最优值）
 
     # 应用 OpenSimplex 噪声修改
         for i in vertices:
